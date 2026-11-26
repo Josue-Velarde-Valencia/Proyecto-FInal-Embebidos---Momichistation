@@ -1,0 +1,115 @@
+
+#!/bin/bash
+
+MNT="/mnt/usb_import_mnt"
+DEST="/home/embebidos/mame/roms"
+SCRIPT="/home/embebidos/scripts/sync_usb_roms.py"
+REPORT="/tmp/roms_importadas.txt"
+LOG="/tmp/usb_watcher.log"
+EXIT_FLAG="/tmp/usb_watcher_exit"
+
+LAST_DEV=""
+
+find_usb_part() {
+	lsblk -nrpo NAME,TYPE,TRAN |
+	awk '$2=="disk" && $3=="usb" {print $1; exit}' |
+	while read -r disk; do
+		lsblk -nrpo NAME,TYPE "$disk" |
+		awk '$2=="part" {print $1; exit}'
+	done
+}
+
+get_mame_pid() {
+	pgrep -x mame | tail -n 1
+}
+
+while true; do
+	[ -f "$EXIT_FLAG" ] && exit 0
+	DEV=$(find_usb_part 2>/dev/null || true)
+	if [ -n "$DEV" ] && [ -b "$DEV" ]; then
+		if [ "$DEV" != "$LAST_DEV" ]; then
+			LAST_DEV="$DEV"
+			MAME_PID=""
+			for i in {1..60}; do
+				MAME_PID=$(get_mame_pid || true)
+				[ -n "$MAME_PID" ] && break
+				sleep 0.25
+			done
+
+			if [ -n "$MAME_PID" ]; then
+                		kill -STOP "$MAME_PID" 2>/dev/null || true
+			fi
+			clear
+			echo "========================="
+			echo "  MEMORIA USB DETECTADA"
+			echo "========================="
+			echo
+			echo "Dispositivo: $DEV"
+			echo
+
+			mkdir -p "$MNT"
+
+			if mount -o ro "$DEV" "$MNT"; then
+				echo "Importando ROM..."
+				echo
+
+				rm -f "$REPORT"
+
+				python3 "$SCRIPT" "$MNT" "$DEST" "$REPORT" >> "$LOG" 2>&1
+				IMPORT_STATUS=$?
+
+				umount "$MNT"
+				echo
+				echo "======== ROMS IMPORTADAS ========"
+				echo
+
+				if [ -s "$REPORT" ]; then
+					cat "$REPORT"
+				else
+					echo "No se importaron ROM nuevas."
+				fi
+
+				if [ "$IMPORT_STATUS" -ne 0 ]; then
+					echo
+					echo "Advertencia: el importador reporto un error."
+					echo "Consulta: $LOG"
+				fi
+
+				echo
+				echo "================================"
+				echo "[1] Continuar emulación"
+				echo "[2] Regresar al menú de títulos"
+				echo "================================"
+				echo
+
+				while true; do
+					read -r -p "Selecciona 1 o 2: " OPTION < /dev/tty
+
+					if [ "$OPTION" = "1" ]; then
+						echo
+						echo "Reanudando MAME..."
+						[ -n "$MAME_PID" ] && kill -CONT "$MAME_PID" 2>/dev/null
+					break
+
+					elif [ "$OPTION" = "2" ]; then
+						echo
+						echo "Regresando al menu de titulos..."
+						touch "$EXIT_FLAG"
+						[ -n "$MAME_PID" ] && kill -TERM "$MAME_PID" 2>/dev/null
+						exit 0
+					else
+						echo "Opcion no valida"
+					fi
+				done
+			else
+				echo "Error montando la memoria USB" >> "$LOG"
+				[ -n "$MAME_PID" ] && kill -CONT "$MAME_PID" 2>/dev/null
+			fi
+		fi
+	else
+		LAST_DEV=""
+	fi
+
+	sleep 1
+done
+

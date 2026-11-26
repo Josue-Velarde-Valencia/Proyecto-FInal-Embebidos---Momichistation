@@ -1,0 +1,2 @@
+/home/embebidos/.bash_profile:1:if [ "$(tty)" = "/dev/tty1" ]; then
+/home/embebidos/.bash_profile:3:/home/embebidos/scripts/start_console.sh

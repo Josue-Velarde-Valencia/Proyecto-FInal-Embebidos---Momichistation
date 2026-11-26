@@ -1,0 +1,48 @@
+import hashlib
+import os
+import shutil
+
+USB_DIR = "/mnt/usb"
+ROMS_DIR = "/home/embebidos/mame/roms"
+REPORT_FILE = "/tmp/roms_importadas.txt"
+EXTS = (".zip", ".7z", ".chd")
+
+def sha256_file(path):
+	h = hashlib.sha256()
+	with open(path, "rb") as f:
+		for chunk in iter(lambda: f.read(65536), b""):
+			h.update(chunk)
+	return h.hexdigest()
+
+os.makedirs(ROMS_DIR, exist_ok=True)
+if os.path.exists(REPORT_FILE):
+	os.remove(REPORT_FILE)
+
+if not os.path.exists(REPORT_FILE):
+	raise SystemExit(0)
+
+existing_hashes = set()
+existing_names = set()
+for fname in os.listdir(ROMS_DIR):
+	fpath = os.path.join(ROMS_DIR, fname)
+	if os.path.isfile(fpath) and fname.lower().endswith(EXTS):
+		existing_names.add(fname.lower())
+		existing_hashes.add(sha256_file(fpath))
+copied = []
+for root, _, files in os.walk(USB_DIR):
+	for fname in files:
+		if not fname.lower().endswith(EXTS):
+			continue
+		src = os.path.join(root, fname)
+		fhash = sha256_file(src)
+		if fname.lower() in existing_names or fhash in existing_hashes:
+			continue
+		dst = os.path.join(ROMS_DIR, fname)
+		shutil.copy2(src, dst)
+		existing_names.add(fname.lower())
+		existing_hashes.add(fhash)
+		copied.append(fname)
+if copied:
+	with open(REPORT_FILE, "w", encoding="utf-8") as out:
+		for item in copied:
+			out.write(item + "\n")

@@ -1,0 +1,32 @@
+printf '\e[?25l'
+trap 'printf "\e[?25h"; kill "$WATCHER_PID" 2>/dev/null || true' EXIT
+clear
+
+EXIT_FLAG="/tmp/usb_watcher_exit"
+rm -f "$EXIT_FLAG"
+
+/home/embebidos/scripts/usb_watcher.sh &
+WATCHER_PID=$!
+
+if [ -f /home/embebidos/splash/intro.mp4 ]; then
+	mpv --fs --really-quiet --no-terminal --osd-level=0 \ /home/embebidos/splash/intro.mp4  >/dev/null 2>&1 || true
+fi
+
+clear
+cd /home/embebidos/mame || exit 1
+
+while true; do
+	if [ -f "$EXIT_FLAG" ]; then
+		break
+	fi
+
+	./mame -video soft >/dev/null 2>&1
+	if [ -f "$EXIT_FLAG" ]; then
+		break
+	fi
+
+	clear
+done
+
+rm -f "$EXIT_FLAG"
+exit 0
